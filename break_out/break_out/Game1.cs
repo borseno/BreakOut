@@ -130,6 +130,7 @@ namespace break_out
         Plate plate;
 
         private bool _won;
+        private bool _endGameCalled;
 
         public Game1()
         {
@@ -148,6 +149,8 @@ namespace break_out
 
         private bool CheckIfWon()
         {
+            if (bricks == null)
+                return false;
 
             for (int i = 0; i < bricks.Length; i++)
             {
@@ -239,13 +242,18 @@ namespace break_out
                 else if (ball.Y >= graphics.PreferredBackBufferHeight)
                     EndGame();
             }
-        }       
+        }
         private void EndGame()
         {
+            if (_endGameCalled)
+                return;
+
             for (int i = 0; i < bricks.Length; i++)
             {
                 bricks[i]?.Dispose();
             }
+
+            bricks = null;
 
             ball.Dispose();
             ball = null;
@@ -254,6 +262,7 @@ namespace break_out
             plate = null;
 
             _state = GameState.Over;
+            _endGameCalled = true;
         }
 
         private bool BrickToCircleCollison(Brick brick)
@@ -282,6 +291,9 @@ namespace break_out
 
         protected override void Initialize()
         {
+            _won = false;
+            _endGameCalled = false;
+
             GenerateBricks();
 
             GenerateBall();
@@ -359,9 +371,9 @@ namespace break_out
             spriteBatch.Begin();
 
             spriteBatch.DrawString(
-                spriteFont, 
-                "Press enter to start the game", 
-                new Vector2(graphics.PreferredBackBufferWidth / 2 - 100, graphics.PreferredBackBufferHeight / 2), 
+                spriteFont,
+                "Press enter to start the game",
+                new Vector2(graphics.PreferredBackBufferWidth / 2 - 100, graphics.PreferredBackBufferHeight / 2),
                 Color.Black
                 );
 
