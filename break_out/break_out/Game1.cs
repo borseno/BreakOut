@@ -3,50 +3,90 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 namespace break_out
 {
-    abstract class Entity
+    abstract class Entity : IDisposable
     {
+        private Texture2D _texture;
+
         public double X { get; protected set; }
         public double Y { get; protected set; }
 
-        public Entity(double X, double Y)
+        public Entity(double x, double y, Texture2D texture)
         {
-            this.X = X;
-            this.Y = Y;
+            X = x;
+            Y = y;
+            _texture = texture;
         }
+
         public override string ToString()
         {
             return $"{this.GetType().Name} on coords : {{ X = {X}; Y = {Y} }}";
         }
 
+        public void Draw(SpriteBatch batch)
+        {
+            batch.Draw(_texture, new Vector2((float)X, (float)Y),
+                null, Color.White, 0, Vector2.Zero, 1f, SpriteEffects.None, 1);
+        }
+
+        #region IDisposable Support
+        private bool disposedValue = false;
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!disposedValue)
+            {
+                if (disposing)
+                {
+                    X = 0;
+                    Y = 0;
+                }
+
+                _texture.Dispose();
+                _texture = null;
+
+                disposedValue = true;
+            }
+        }
+        ~Entity()
+        {
+            Dispose(false);
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+
+            GC.SuppressFinalize(this);
+        }
+        #endregion
     }
 
     class Brick : Entity
     {
         public readonly int Width;
         public readonly int Height;
-        public Color Color = Color.Black;
 
-        public Brick(double X, double Y, int Width, int Height, Color Color) : base(X, Y)
+        public Brick(double X, double Y, int Width, int Height, Texture2D texture) : base(X, Y, texture)
         {
             this.Width = Width;
             this.Height = Height;
-            this.Color = Color;
         }
     }
 
     class Ball : Entity
     {
-        public readonly int Radius;
+        public int Radius { get; }
         public double Vx { get; set; } = 0;
         public double Vy { get; set; } = 2.25;
 
-        public Ball(int Radius, double X, double Y) : base(X, Y)
+        public Ball(int radius, double x, double y, Texture2D texture) : base(x, y, texture)
         {
-            this.Radius = Radius;
+            Radius = radius;
         }
 
         public void Move()
@@ -58,13 +98,14 @@ namespace break_out
 
     class Plate : Brick
     {
-        public Plate(double X, double Y, int Width, int Height, Color Color) : base(X, Y, Width, Height, Color)
+        public Plate(double X, double Y, int Width, int Height, Texture2D texture)
+            : base(X, Y, Width, Height, texture)
         {
         }
 
         public void ChangeCoords(double x)
         {
-            this.X = x - (Width / 2);
+            this.X = x - (Width / 2); // change not right edge point position to x, but the mid point to x
         }
     }
 
@@ -79,35 +120,16 @@ namespace break_out
         }
         GameState _state;
 
-        bool HaveWon
-        {
-            get
-            {
-                for (int i = 0; i < bricks.Length; i++)
-                {
-                    if (bricks[i] != null)
-                        return false;
-                }
-                return true;
-            }
-            set
-            {
-
-            }
-        }
-
         GraphicsDeviceManager graphics;
         SpriteBatch spriteBatch;
-        Texture2D BallTexture;
-        Texture2D PlateTexture;
-        Texture2D[] BrickTextures;
-        Texture2D Menu;
 
-        //SpriteFont spriteFont;
+        SpriteFont spriteFont;
 
         Brick[] bricks;
         Ball ball;
         Plate plate;
+
+        private bool _won;
 
         public Game1()
         {
@@ -124,120 +146,146 @@ namespace break_out
             Content.RootDirectory = "Content";
         }
 
+        private bool CheckIfWon()
+        {
+
+            for (int i = 0; i < bricks.Length; i++)
+            {
+                if (bricks[i] != null)
+                    return false;
+            }
+            return true;
+        }
+
         private void GenerateBricks(int Amount = 20, int Width = 90, int Height = 30)
         {
             Random rnd = new Random();
 
             bricks = new Brick[Amount];
-            BrickTextures = new Texture2D[Amount];
 
+            // init brick textures
             for (int i = 0; i < Amount; i++)
             {
                 Color RandomColor = Color.FromNonPremultiplied(rnd.Next(1, 255), rnd.Next(1, 255), rnd.Next(1, 255), 255);
-                bricks[i] = new Brick((i % 10) * Width, (i / 10) * Height, Width, Height, RandomColor);
 
-                Color[] data = new Color[bricks[i].Width * bricks[i].Height];
+                Color[] data = new Color[Width * Height];
                 for (int j = 0; j < data.Length; j++)
-                    data[j] = bricks[i].Color;
+                    data[j] = RandomColor;
 
-                BrickTextures[i] = new Texture2D(GraphicsDevice, bricks[i].Width, bricks[i].Height);
-                BrickTextures[i].SetData(data);
+                var texture = new Texture2D(GraphicsDevice, Width, Height);
+                texture.SetData(data);
+
+                bricks[i] = new Brick((i % 10) * Width, (i / 10) * Height, Width, Height, texture);
             }
         }
         private void GenerateBall()
         {
-            Random rnd = new Random();
+            const int radius = 15;
 
-            int Radius = 15;
+            var texture = ShapeCreator.CreateCircle(radius * 2, GraphicsDevice, Color.Black);
 
             ball =
-                new Ball(Radius,
-                graphics.PreferredBackBufferWidth / 2 - Radius,
-                graphics.PreferredBackBufferHeight / 2 - Radius);
+                new Ball(radius,
+                graphics.PreferredBackBufferWidth / 2 - radius,
+                graphics.PreferredBackBufferHeight / 2 - radius, texture);
         }
         private void GeneratePlate(int PlateWidth = 150, int PlateHeight = 6)
         {
-            Random rnd = new Random();
+            var texture = new Texture2D(GraphicsDevice, PlateWidth, PlateHeight);
 
-            plate = new Plate(graphics.PreferredBackBufferWidth / 2 - (PlateWidth / 2),
-                graphics.PreferredBackBufferHeight - PlateHeight, PlateWidth, PlateHeight, Color.White);
-            PlateTexture = new Texture2D(GraphicsDevice, plate.Width, plate.Height);
-
-            Color[] PlateData = new Color[plate.Width * plate.Height];
+            Color[] PlateData = new Color[PlateWidth * PlateHeight];
 
             for (int i = 0; i < PlateData.Length; ++i)
-                PlateData[i] = plate.Color;
+                PlateData[i] = Color.White;
 
-            PlateTexture.SetData(PlateData);
+            texture.SetData(PlateData);
+
+            plate = new Plate(
+                graphics.PreferredBackBufferWidth / 2 - (PlateWidth / 2),
+                graphics.PreferredBackBufferHeight - PlateHeight,
+                PlateWidth,
+                PlateHeight,
+                texture);
         }
 
-        private List<int> GetBricksCollidingTheBallIndexes()
+        private Dictionary<int, Brick> GetCollidingBricksIndexes()
         {
-            List<int> IndexesList = new List<int>(2);
+            var result = new Dictionary<int, Brick>(bricks.Length);
 
             for (int i = 0; i < bricks.Length; i++)
             {
                 if (bricks[i] != null && BrickToCircleCollison(bricks[i]))
-                    IndexesList.Add(i);
+                    result.Add(i, bricks[i]);
             }
-            return IndexesList;
+
+            return result;
         }
+
         private void BallHitsPlate()
         {
-            // Checks whether the ball hits the plate or not. 2)
-            // If not, then if its Y coord is <= plate's one, exits the game. 1) 
+            // Checks whether the ball hits the plate or not. 1)
+            // If not, then if its Y coord is <= plate's one, exits the game. 2) 
             // If yes, it reverses Vy Velocity and Gets the X speed of the ball depending on what part 3) 
             //                                                                  of the plate has been hit
 
             if (ball.Y + (ball.Radius * 2) >= plate.Y)
             {
-                if (ball.X + ball.Radius * 2 >= plate.X && ball.X <= plate.X + plate.Width) // hits
+                if (BrickToCircleCollison(plate))
                 {
                     double scale = ball.X + ball.Radius - (plate.X + plate.Width / 2);
                     ball.Vx = (scale / Math.Sqrt(Math.Abs(scale))) / 4.5;
                     ball.Vy *= -1;
                 }
-                else
-                    _state = GameState.Over;
+                else if (ball.Y >= graphics.PreferredBackBufferHeight)
+                    EndGame();
             }
+        }       
+        private void EndGame()
+        {
+            for (int i = 0; i < bricks.Length; i++)
+            {
+                bricks[i]?.Dispose();
+            }
+
+            ball.Dispose();
+            ball = null;
+
+            plate.Dispose();
+            plate = null;
+
+            _state = GameState.Over;
         }
 
         private bool BrickToCircleCollison(Brick brick)
         {
-            double closeX = ball.X;
-            double closeY = ball.Y;
-
-            // Check left side of the Rect
-            if (ball.X < brick.X) closeX = brick.X;
-            // Right side of the rect
-            if (ball.X > brick.X + brick.Width) closeX = brick.X + brick.Width;
-
-            // Check top side of the Rect
-            if (ball.Y < brick.Y) closeY = brick.Y;
-            // Right bottom of the rect
-            if (ball.Y > brick.Y + brick.Height) closeY = brick.Y + brick.Height;
-
-            double distance = Math.Sqrt(
-                (closeX - ball.X) * (closeX - ball.X)
-                + (closeY - ball.Y) * (closeY - ball.Y));
-
-            if (distance <= ball.Radius)
-                return true;
-            return false;
+            return CollisionDetector.Intersects(ball, brick);
         }
 
-        private void BallContactsWalls() // Check if the ball arrives at any of the walls, reverse Y-Velocity if does 
+        private bool BallContactsWalls() // Check if the ball arrives at any of the walls, reverse Velocity if does 
         {
+            bool result = false;
+
             if ((ball.X + ball.Radius * 2 >= graphics.PreferredBackBufferWidth) || (ball.X <= 0))
+            {
                 ball.Vx *= -1;
-            if ((ball.Y + ball.Radius * 2 >= graphics.PreferredBackBufferHeight) || (ball.Y <= 0))
+                result = true;
+            }
+
+            if (ball.Y <= 0)
+            {
                 ball.Vy *= -1;
+                result = true;
+            }
+
+            return result;
         }
 
         protected override void Initialize()
         {
             GenerateBricks();
+
             GenerateBall();
+
             GeneratePlate();
 
             _state = GameState.Menu;
@@ -248,13 +296,16 @@ namespace break_out
         protected override void LoadContent()
         {
             spriteBatch = new SpriteBatch(GraphicsDevice);
-            BallTexture = Content.Load<Texture2D>("Ball");
-            Menu = Content.Load<Texture2D>("PressEnterToContinue");            
-            
-        }
 
-        protected override void UnloadContent()
+            spriteFont = Content.Load<SpriteFont>("File");
+
+            base.LoadContent();
+        }
+        protected override void UnloadContent() // !!!
         {
+            Content.Unload();
+
+            base.UnloadContent();
         }
 
         private void UpdateMenu()
@@ -279,15 +330,16 @@ namespace break_out
             ball.Move();
 
             // Check if ball arrives at any of the remaining bricks
-            List<int> Indexes = GetBricksCollidingTheBallIndexes();
-            if (Indexes.Count != 0) // delete bricks
+            var bricksAndIndexes = GetCollidingBricksIndexes();
+            if (bricksAndIndexes.Count > 0) // delete bricks
             {
-                for (int i = 0; i < Indexes.Count; i++)
+                PositionRelationBallVelocityManager.ReverseVelocityAccordingToPositionRelation(ball, bricksAndIndexes.Values);
+
+                foreach (var i in bricksAndIndexes)
                 {
-                    bricks[Indexes[i]] = null;
-                    BrickTextures[Indexes[i]] = null;
+                    bricks[i.Key].Dispose();
+                    bricks[i.Key] = null;
                 }
-                ball.Vy *= -1;
             }
 
             // Check if contacts Walls. Reverses vilocity if does.
@@ -296,8 +348,8 @@ namespace break_out
             // Check if ball arrives at the plate
             BallHitsPlate();
 
-            if (HaveWon)
-                _state = GameState.Over;
+            if (_won = CheckIfWon())
+                EndGame();
         }
 
         private void DrawMenu()
@@ -306,7 +358,12 @@ namespace break_out
 
             spriteBatch.Begin();
 
-            spriteBatch.Draw(Menu, new Vector2(0, 0), Color.White);
+            spriteBatch.DrawString(
+                spriteFont, 
+                "Press enter to start the game", 
+                new Vector2(graphics.PreferredBackBufferWidth / 2 - 100, graphics.PreferredBackBufferHeight / 2), 
+                Color.Black
+                );
 
             spriteBatch.End();
         }
@@ -316,32 +373,26 @@ namespace break_out
 
             spriteBatch.Begin();
 
-            spriteBatch.Draw(Menu, new Vector2(0, 0), Color.White);
+            spriteBatch.DrawString(
+                spriteFont,
+                $"You've {(_won ? "won" : "lost")}. Press enter to start the game",
+                new Vector2(graphics.PreferredBackBufferWidth / 2 - 100, graphics.PreferredBackBufferHeight / 2),
+                Color.Black
+            );
 
             spriteBatch.End();
         }
         private void DrawGame()
         {
             GraphicsDevice.Clear(Color.DodgerBlue);
+
             spriteBatch.Begin();
 
-            Texture2D[] texturesToDraw = new Texture2D[bricks.Length + 2];
+            var entities = new List<Entity>(bricks) { ball, plate };
 
-            BrickTextures.CopyTo(texturesToDraw, 0);
-            texturesToDraw[BrickTextures.Length] = BallTexture;
-            texturesToDraw[texturesToDraw.Length - 1] = PlateTexture;
-
-            Entity[] entitiesBeingDrawn = new Entity[bricks.Length + 2];
-
-            bricks.CopyTo(entitiesBeingDrawn, 0);
-            entitiesBeingDrawn[bricks.Length] = ball;
-            entitiesBeingDrawn[entitiesBeingDrawn.Length - 1] = plate;
-            
-            for (int i = 0; i < entitiesBeingDrawn.Length; i++)
+            foreach (var i in entities)
             {
-                if (entitiesBeingDrawn[i] != null)
-                    spriteBatch.Draw(texturesToDraw[i], new Vector2((float)entitiesBeingDrawn[i].X, (float)entitiesBeingDrawn[i].Y),
-                        null, Color.White, 0, Vector2.Zero, 1f, SpriteEffects.None, 1);
+                i?.Draw(spriteBatch);
             }
 
             spriteBatch.End();
